@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+data/raw_data/
+models/gan_checkpoints/
+models/yolo_weights/
+*.pt
+.env

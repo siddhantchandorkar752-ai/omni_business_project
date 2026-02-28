@@ -1,0 +1,21 @@
+import os
+from ultralytics import YOLO
+
+yaml_content = """
+path: ../data/processed
+train: train/images
+val: val/images
+
+names:
+  0: Grade_A_Perfect
+  1: Grade_B_Minor
+  2: Grade_C_Reject
+"""
+
+os.makedirs("data", exist_ok=True)
+with open("data/dataset.yaml", "w") as file:
+    file.write(yaml_content.strip())
+
+model = YOLO("yolov8n.pt")
+
+print("YOLO Vision Engine Initialized.")

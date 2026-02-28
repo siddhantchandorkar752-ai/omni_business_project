@@ -1,0 +1,18 @@
+omni_business_project/
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── packages.txt
+├── data/
+│   ├── raw_data/
+│   ├── processed/
+│   └── dataset.yaml
+├── scripts/
+│   ├── git_setup.py
+│   └── yolo_trainer.py
+├── models/
+│   └── yolo_vision_weights/
+│       └── weights/
+│           └── best.pt
+└── cloud_deployment/
+    └── app.py

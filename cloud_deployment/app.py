@@ -10,52 +10,79 @@ st.title("Enterprise Defect & Dynamic Pricing Engine")
 class PricingEngine:
     def __init__(self):
         self.base_price = 1000.0
-        self.discounts = {"Grade_A_Perfect": 0.0, "Grade_B_Minor": 0.30, "Grade_C_Reject": 1.0}
+        # Mapping common metal defects to discount logic
+        self.discounts = {
+            "scratches": 0.40,      
+            "pitted_surface": 0.50,
+            "crazing": 0.35,
+            "patches": 0.45,
+            "inclusion": 0.40,
+            "rolled-in_scale": 0.50,
+            "Grade_A_Perfect": 0.0
+        }
 
     def calculate_price(self, detection_class):
-        return self.base_price * (1 - self.discounts.get(detection_class, 0.0))
+        discount = self.discounts.get(detection_class, 0.10)
+        return self.base_price * (1 - discount)
 
     def get_action(self, detection_class):
-        if detection_class == "Grade_B_Minor": return "Flash Sale - 30% Off"
-        if detection_class == "Grade_C_Reject": return "Recycle Pipeline"
+        discount = self.discounts.get(detection_class, 0.0)
+        if discount >= 0.50: return "Recycle Pipeline"
+        if discount > 0.0: return f"Flash Sale - {int(discount*100)}% Off"
         return "Standard Sale"
 
 engine = PricingEngine()
 
+# Dashboard Stats
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Inspected Today", "1,043", "+1")
 col2.metric("Grade B (Flash Sale)", "85", "+1")
 col3.metric("Revenue Recovered", "₹59,500", "+8%")
 
 st.subheader("Live Vision Inspection Feed")
-uploaded_file = st.file_uploader("Upload Metal Surface Image from Conveyor Belt", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload Metal Surface Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Raw Camera Feed", width=400)
     
     with st.spinner("YOLOv8 Engine scanning for defects..."):
         try:
-            model = YOLO("yolov8n.pt") 
+            # GURU MANTRA: Yahan hum apne Step 8 waale trained weights use kar rahe hain
+            # Agar weights file nahi milti toh default load hoga
+            model_path = "models/yolo_vision_weights/weights/best.pt"
+            if os.path.exists(model_path):
+                model = YOLO(model_path)
+            else:
+                model = YOLO("yolov8n.pt") 
+
+            # Running Inference
             results = model(image)
-            res_img = results[0].plot()
-            st.image(res_img, caption="AI Defect Analysis Complete", width=400)
             
-            detected_class = "Grade_B_Minor" 
+            # --- BOUNDING BOX LOGIC ---
+            # results[0].plot() apne aap detected objects par boxes aur labels banata hai
+            res_img_array = results[0].plot() 
+            res_img = Image.fromarray(res_img_array[..., ::-1]) # BGR to RGB conversion
+            
+            st.image(res_img, caption="AI Analysis with Bounding Boxes", use_container_width=True)
+            
+            # Extracting detected class
+            if len(results[0].boxes) > 0:
+                class_id = int(results[0].boxes.cls[0])
+                detected_class = results[0].names[class_id]
+            else:
+                detected_class = "Grade_A_Perfect"
             
             final_price = engine.calculate_price(detected_class)
             action = engine.get_action(detected_class)
             
             st.subheader("AI Business Action Triggered")
             df = pd.DataFrame([{
-                "Item_ID": f"ITEM_8474_LIVE",
-                "Quality": detected_class,
-                "Original_Price": f"₹{engine.base_price}",
+                "Item_ID": f"ITEM_{uploaded_file.name[:5].upper()}",
+                "Detected_Defect": detected_class,
                 "Final_Price": f"₹{final_price}",
                 "Action": action
             }])
             st.dataframe(df, use_container_width=True)
-            st.success("Item processed and pushed to live inventory pipeline!")
             
         except Exception as e:
-            st.error(f"Engine Error: {e}")
+            st.error(f"Inference Error: {e}")

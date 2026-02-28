@@ -1,4 +1,4 @@
-path: ../data/processed
+path: C:/Users/ADMIN/OneDrive/Desktop/omni_business_project/omni_business_project/data/processed
 train: train/images
 val: val/images
 

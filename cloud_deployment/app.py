@@ -4,97 +4,79 @@ from PIL import Image
 from ultralytics import YOLO
 import cv2
 import numpy as np
-import os
 
-# --- Page Config ---
-st.set_page_config(page_title="Omni-Sight AI Dashboard", layout="wide")
+st.set_page_config(page_title="Omni-Sight AI: Extreme Detection", layout="wide")
 st.title("🛡️ Enterprise AI: Vision & Dynamic Pricing Engine")
 
-# --- Pricing Engine Logic ---
 class PricingEngine:
     def __init__(self):
         self.base_price = 1000.0
-        self.defect_discounts = {
-            "scratches": 0.40, "pitted_surface": 0.50, "crazing": 0.35,
-            "patches": 0.45, "inclusion": 0.40, "rolled-in_scale": 0.50,
-            "Anomaly": 0.60 # Default discount for unknown debris/cracks
-        }
+        self.discounts = {"scratches": 0.40, "Anomaly": 0.60, "Perfect": 0.0}
 
     def calculate(self, label):
-        discount = self.defect_discounts.get(label, 0.20)
-        final_price = self.base_price * (1 - discount)
-        action = "Flash Sale" if discount < 1.0 else "Recycle"
-        if label == "Perfect": action = "Standard Sale"; final_price = self.base_price
-        return final_price, action
+        discount = self.discounts.get(label, 0.40) # Default heavy discount for any detection
+        price = self.base_price * (1 - discount)
+        action = "Standard Sale" if label == "Perfect" else "Reject / Flash Sale"
+        return price, action
 
 engine = PricingEngine()
 
-# --- Hybrid Vision Engine ---
 def process_vision(img):
-    # 1. YOLO Detection (Confidence 0.15 for high sensitivity)
-    model = YOLO("yolov8n.pt") 
-    results = model(img, conf=0.15)
-    res_img = results[0].plot(boxes=True, labels=True)
+    # 1. Convert to OpenCV Format
+    open_cv_image = np.array(img.convert('RGB'))
+    res_img = open_cv_image.copy()
+    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
+    
+    # 2. EXTREME DETECTION: Adaptive Thresholding
+    # Ye deewar ke plaster aur micro-cracks ko highlight karega
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     detected_label = "Perfect"
-    if len(results[0].boxes) > 0:
-        class_id = int(results[0].boxes.cls[0])
-        detected_label = results[0].names[class_id]
-
-    # 2. OpenCV Anomaly Detection (For cracks/debris YOLO misses)
-    open_cv_image = np.array(img)
-    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    count = 0
     
-    anomaly_found = False
     for cnt in contours:
-        if cv2.contourArea(cnt) > 800: # Sensitivity for debris size
+        area = cv2.contourArea(cnt)
+        if 500 < area < 50000: # Filter small noise and large backgrounds
             x, y, w, h = cv2.boundingRect(cnt)
-            # Drawing a Blue Box for "Unknown Anomaly"
+            # Blue Box for any texture anomaly
             cv2.rectangle(res_img, (x, y), (x+w, y+h), (255, 0, 0), 3)
-            anomaly_found = True
-            if detected_label == "Perfect": detected_label = "Anomaly"
+            detected_label = "Anomaly"
+            count += 1
 
-    return res_img, detected_label
+    # 3. YOLO Overlay (If it finds specific objects)
+    model = YOLO("yolov8n.pt")
+    yolo_results = model(img, conf=0.1)
+    if len(yolo_results[0].boxes) > 0:
+        res_img = yolo_results[0].plot(img=res_img)
+        class_id = int(yolo_results[0].boxes.cls[0])
+        detected_label = yolo_results[0].names[class_id]
 
-# --- Sidebar / Dashboard Stats ---
-st.sidebar.header("System Health")
-st.sidebar.metric("Vision Engine", "ACTIVE", "Hybrid Mode")
-st.sidebar.metric("Pricing Logic", "CONNECTED")
+    return res_img, detected_label, count
 
-# --- Main UI ---
-st.subheader("Live Inspection Pipeline")
-uploaded_file = st.file_uploader("Upload Surface Image (Metal/Debris/Cracks)", type=["jpg", "jpeg", "png"])
+st.subheader("Live Inspection Pipeline (Extreme Sensitivity)")
+uploaded_file = st.file_uploader("Upload Surface Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    
-    with st.spinner("Executing Deep Tissue Scan..."):
+    with st.spinner("AI Engine: Hunting for Anomalies..."):
         try:
-            processed_array, final_label = process_vision(image)
-            # Convert BGR (OpenCV) back to RGB for Streamlit
-            final_img = Image.fromarray(processed_array[..., ::-1] if len(processed_array.shape)==3 else processed_array)
+            processed_array, final_label, box_count = process_vision(image)
+            st.image(processed_array, caption=f"Analysis Complete: {box_count} areas flagged.", use_container_width=True)
             
-            st.image(final_img, caption=f"Analysis Result: {final_label}", use_container_width=True)
-            
-            # Pricing Trigger
             price, action = engine.calculate(final_label)
             
             if final_label != "Perfect":
-                st.error(f"🚨 ALERT: {final_label} Detected!")
+                st.error(f"🚨 ALERT: {final_label} Detected! Revenue impact triggered.")
             else:
-                st.success("✅ Quality Check Passed.")
+                st.success("✅ Quality Verified.")
 
-            # Business Data Table
-            st.subheader("Business Impact Analysis")
-            results_df = pd.DataFrame([{
-                "Inspection_ID": f"AI_{uploaded_file.name[:4].upper()}",
+            st.table(pd.DataFrame([{
+                "ID": uploaded_file.name[:5],
                 "Condition": final_label.upper(),
-                "Market_Value": f"₹{price}",
-                "Recommended_Action": action
-            }])
-            st.table(results_df)
+                "Price": f"₹{price}",
+                "Action": action
+            }]))
             
         except Exception as e:
-            st.error(f"System Glitch: {e}")
+            st.error(f"System Error: {e}")

@@ -1,81 +1,73 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image
-from ultralytics import YOLO
 import cv2
 import numpy as np
+from ultralytics import YOLO
 
-st.set_page_config(page_title="Omni-Sight AI: Extreme Detection", layout="wide")
+st.set_page_config(page_title="Omni-Sight AI: Final Fix", layout="wide")
 st.title("🛡️ Enterprise AI: Vision & Dynamic Pricing Engine")
 
-class PricingEngine:
-    def __init__(self):
-        self.base_price = 1000.0
-        self.discounts = {"scratches": 0.40, "Anomaly": 0.60, "Perfect": 0.0}
+# --- SMART PRICING LOGIC ---
+def get_business_impact(label, anomaly_score):
+    base_price = 1000.0
+    # Agar anomaly_score zyada hai, toh discount badhao
+    if label == "Perfect" and anomaly_score < 5:
+        return base_price, "Standard Sale", "Grade A"
+    else:
+        # Dynamic Discount based on how much mess is detected
+        discount = min(0.9, 0.2 + (anomaly_score * 0.05)) 
+        final_price = base_price * (1 - discount)
+        return final_price, "Flash Sale / Reject", "Grade B/C"
 
-    def calculate(self, label):
-        discount = self.discounts.get(label, 0.40) # Default heavy discount for any detection
-        price = self.base_price * (1 - discount)
-        action = "Standard Sale" if label == "Perfect" else "Reject / Flash Sale"
-        return price, action
-
-engine = PricingEngine()
-
-def process_vision(img):
-    # 1. Convert to OpenCV Format
+# --- SUPER SENSITIVE VISION ENGINE ---
+def analyze_frame(img):
+    # Image ko process karne ke liye taiyar karein
     open_cv_image = np.array(img.convert('RGB'))
     res_img = open_cv_image.copy()
     gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
     
-    # 2. EXTREME DETECTION: Adaptive Thresholding
-    # Ye deewar ke plaster aur micro-cracks ko highlight karega
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Texture Detection: Ye har ek crack aur malbe ko highlight karega
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 30, 100) # Bahut sensitive settings
     
-    detected_label = "Perfect"
-    count = 0
+    # Bounding Boxes dhoondhna
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
+    anomaly_count = 0
     for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if 500 < area < 50000: # Filter small noise and large backgrounds
+        if cv2.contourArea(cnt) > 100: # Chote defects bhi pakdega
             x, y, w, h = cv2.boundingRect(cnt)
-            # Blue Box for any texture anomaly
-            cv2.rectangle(res_img, (x, y), (x+w, y+h), (255, 0, 0), 3)
-            detected_label = "Anomaly"
-            count += 1
+            cv2.rectangle(res_img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+            anomaly_count += 1
 
-    # 3. YOLO Overlay (If it finds specific objects)
-    model = YOLO("yolov8n.pt")
-    yolo_results = model(img, conf=0.1)
-    if len(yolo_results[0].boxes) > 0:
-        res_img = yolo_results[0].plot(img=res_img)
-        class_id = int(yolo_results[0].boxes.cls[0])
-        detected_label = yolo_results[0].names[class_id]
+    label = "Anomaly" if anomaly_count > 5 else "Perfect"
+    return res_img, label, anomaly_count
 
-    return res_img, detected_label, count
-
-st.subheader("Live Inspection Pipeline (Extreme Sensitivity)")
-uploaded_file = st.file_uploader("Upload Surface Image", type=["jpg", "jpeg", "png"])
+st.subheader("Live Inspection Pipeline (Precision Mode)")
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    with st.spinner("AI Engine: Hunting for Anomalies..."):
+    with st.spinner("AI Engine: Scanning every pixel..."):
         try:
-            processed_array, final_label, box_count = process_vision(image)
-            st.image(processed_array, caption=f"Analysis Complete: {box_count} areas flagged.", use_container_width=True)
+            processed_img, status, score = analyze_frame(image)
+            st.image(processed_img, caption=f"Detection Score: {score} anomalies found", use_container_width=True)
             
-            price, action = engine.calculate(final_label)
+            # Business Logic
+            final_price, action, grade = get_business_impact(status, score)
             
-            if final_label != "Perfect":
-                st.error(f"🚨 ALERT: {final_label} Detected! Revenue impact triggered.")
+            if status != "Perfect":
+                st.error(f"🚨 ALERT: Surface Anomalies Detected ({grade})")
             else:
-                st.success("✅ Quality Verified.")
+                st.success("✅ Quality Verified (Grade A)")
 
+            # Results Table
             st.table(pd.DataFrame([{
-                "ID": uploaded_file.name[:5],
-                "Condition": final_label.upper(),
-                "Price": f"₹{price}",
-                "Action": action
+                "Inspection_ID": uploaded_file.name[:5].upper(),
+                "Detected_Grade": grade,
+                "Dynamic_Price": f"₹{final_price}",
+                "Market_Action": action
             }]))
             
         except Exception as e:
